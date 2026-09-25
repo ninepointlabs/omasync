@@ -18,6 +18,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -404,6 +405,40 @@ def service_action(action):
     emit({"ok": True, "action": action, "service": service_state()})
 
 
+def adopt():
+    """Hand a daemon started outside systemd (from a terminal, say) to the unit.
+
+    That copy holds Syncthing's lock, so `systemctl start` alone just fails
+    with "is another Syncthing instance already running?" and trips the start
+    limit. Ask it to shut down over REST, wait for it to let go, then start
+    the unit fresh.
+    """
+    if not unit_exists():
+        fail("systemd user unit %s is not installed" % UNIT)
+    base, key, _ = read_gui_config()
+    if base:
+        _, error = api(base, key, "/rest/system/status")
+        if error is None:
+            _, error = api(base, key, "/rest/system/shutdown", method="POST")
+            if error:
+                fail(error, service=service_state())
+            for _ in range(40):
+                time.sleep(0.25)
+                _, error = api(base, key, "/rest/system/status", timeout=1.0)
+                if error:
+                    break
+            else:
+                fail("Syncthing did not shut down", service=service_state())
+            # The API goes quiet a beat before the process releases its lock.
+            time.sleep(0.5)
+    # A few failed starts against the held lock leave the unit rate limited.
+    run([SYSTEMCTL, "--user", "reset-failed", UNIT])
+    code, _, err = run([SYSTEMCTL, "--user", "start", UNIT], timeout=45)
+    if code != 0:
+        fail(err or "systemctl start failed", service=service_state())
+    emit({"ok": True, "action": "adopt", "service": service_state()})
+
+
 def post(path, body=None, method="POST"):
     base, key, _ = read_gui_config()
     if not base:
@@ -495,6 +530,8 @@ def main(argv):
             since = int(rest[0].lstrip("-"))
         events(since)
     elif command == "service":
+        if rest and rest[0] == "adopt":
+            adopt()
         service_action(rest[0] if rest else "status")
     elif command == "rescan":
         # No folder argument rescans every folder.

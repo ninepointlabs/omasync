@@ -58,8 +58,11 @@ Item {
   // whatever the snapshot says".
   property int _desiredRunning: -1
   readonly property bool serviceRunning: _desiredRunning === -1
-    ? (snapshot.service ? snapshot.service.running === true : false)
+    ? Model.daemonRunning(snapshot)
     : (_desiredRunning === 1)
+  // Up, but started outside systemd (from a terminal, say), so stopping it
+  // goes through the REST API and "restart" hands it over to the unit.
+  readonly property bool externallyManaged: Model.runningOutsideSystemd(snapshot)
 
   readonly property bool busy: snapshotProcess.running || actionProcess.running
 
@@ -144,8 +147,8 @@ Item {
     lastError = apiErrorMatters ? apiError : String(parsed.error || "")
 
     // The snapshot has caught up with the toggle, so stop overriding it.
-    if (_desiredRunning !== -1 && parsed.service &&
-        (parsed.service.running === true) === (_desiredRunning === 1)) {
+    if (_desiredRunning !== -1 &&
+        Model.daemonRunning(parsed) === (_desiredRunning === 1)) {
       _desiredRunning = -1
     }
 
@@ -209,7 +212,8 @@ Item {
 
   function stopService() {
     _desiredRunning = 0
-    runAction(["service", "stop"], "Stopping Syncthing…")
+    if (externallyManaged) runAction(["syncthing-shutdown"], "Stopping Syncthing…")
+    else runAction(["service", "stop"], "Stopping Syncthing…")
   }
 
   function toggleService() {
@@ -221,7 +225,8 @@ Item {
     _desiredRunning = 1
     startupRamp.ticks = 0
     startupRamp.start()
-    runAction(["service", "restart"], "Restarting Syncthing…")
+    if (externallyManaged) runAction(["service", "adopt"], "Handing Syncthing over to systemd…")
+    else runAction(["service", "restart"], "Restarting Syncthing…")
   }
 
   function setAutostart(enabled) {

@@ -163,14 +163,28 @@ function deviceDetail(device) {
 
 // ------------------------------------------------------------- aggregate
 
+// Whether a daemon is up at all. The unit is not the only way to run
+// Syncthing: a copy started from a terminal answers on the API while the unit
+// reads inactive (or failed, if it then tried to start against the lock).
+function daemonRunning(snapshot) {
+  var s = snapshot || {}
+  return (s.service || {}).running === true || (s.api || {}).reachable === true
+}
+
+// A daemon is up but systemd does not own it, so systemctl cannot stop it.
+function runningOutsideSystemd(snapshot) {
+  var s = snapshot || {}
+  return (s.service || {}).running !== true && (s.api || {}).reachable === true
+}
+
 // The single state the bar icon and the hero headline agree on. Order matters:
 // the worst true thing wins, so an error is never hidden behind "syncing".
 function overallState(snapshot) {
   var s = snapshot || {}
   if (!s.installed) return { key: "missing", label: "Syncthing is not installed" }
-  var service = s.service || {}
-  if (!s.configured && !service.running) return { key: "stopped", label: "Not set up yet" }
-  if (!service.running) return { key: "stopped", label: "Stopped" }
+  var running = daemonRunning(s)
+  if (!s.configured && !running) return { key: "stopped", label: "Not set up yet" }
+  if (!running) return { key: "stopped", label: "Stopped" }
   var api = s.api || {}
   if (!api.reachable) return { key: "starting", label: "Starting…" }
   if ((s.errors || []).length > 0) return { key: "error", label: "Syncthing reported an error" }
@@ -225,8 +239,7 @@ function pendingCount(snapshot) {
 // Second line of the hero: who we are connected to, and how fast.
 function heroMeta(snapshot, inRate, outRate) {
   var s = snapshot || {}
-  var service = s.service || {}
-  if (!service.running) return s.configured ? "Service stopped" : "Syncthing has never been started"
+  if (!daemonRunning(s)) return s.configured ? "Service stopped" : "Syncthing has never been started"
   var parts = []
   var devices = s.devices || []
   if (devices.length > 0) {
@@ -239,14 +252,14 @@ function heroMeta(snapshot, inRate, outRate) {
   if (down !== "") parts.push("↓ " + down)
   if (up !== "") parts.push("↑ " + up)
   if (parts.length === 0) parts.push("Running")
+  if (runningOutsideSystemd(s)) parts.push("outside systemd")
   return parts.join(" · ")
 }
 
 // What the bar shows next to the icon, per the `barLabel` setting.
 function barLabelText(mode, snapshot, inRate, outRate) {
   var s = snapshot || {}
-  var service = s.service || {}
-  if (mode === "none" || !service.running) return ""
+  if (mode === "none" || !daemonRunning(s)) return ""
   if (mode === "rate") {
     var down = formatRate(inRate)
     var up = formatRate(outRate)
@@ -412,6 +425,8 @@ if (typeof module !== "undefined" && module.exports) {
     overallCompletion: overallCompletion,
     connectedDeviceCount: connectedDeviceCount,
     pendingCount: pendingCount,
+    daemonRunning: daemonRunning,
+    runningOutsideSystemd: runningOutsideSystemd,
     heroMeta: heroMeta,
     barLabelText: barLabelText,
     notifiableChanges: notifiableChanges,

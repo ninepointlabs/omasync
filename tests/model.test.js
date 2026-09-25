@@ -125,7 +125,7 @@ test("revert is offered only for a receive-only folder with local divergence", (
 test("overallState reports the worst true condition first", () => {
   assert.equal(Model.overallState(snapshot({ installed: false })).key, "missing")
   assert.equal(
-    Model.overallState(snapshot({ service: { exists: true, running: false } })).key,
+    Model.overallState(snapshot({ service: { exists: true, running: false }, api: { reachable: false } })).key,
     "stopped"
   )
   assert.equal(
@@ -197,7 +197,7 @@ test("barLabelText honours the mode and hides itself when there is nothing to sa
 })
 
 test("barLabelText is empty whenever the service is not running", () => {
-  const stopped = snapshot({ service: { exists: true, running: false } })
+  const stopped = snapshot({ service: { exists: true, running: false }, api: { reachable: false } })
   assert.equal(Model.barLabelText("rate", stopped, 5000, 5000), "")
   assert.equal(Model.barLabelText("percent", stopped, 0, 0), "")
 })
@@ -301,9 +301,28 @@ test("heroMeta summarises devices, folders and live rates", () => {
   assert.equal(Model.heroMeta(state, 0, 0), "1/2 devices · 1 folder")
   assert.equal(Model.heroMeta(state, 2048, 1024), "1/2 devices · 1 folder · ↓ 2.0 KiB/s · ↑ 1.0 KiB/s")
   assert.equal(
-    Model.heroMeta(snapshot({ service: { running: false }, configured: false }), 0, 0),
+    Model.heroMeta(snapshot({ service: { running: false }, api: { reachable: false }, configured: false }), 0, 0),
     "Syncthing has never been started"
   )
+})
+
+test("a daemon started outside systemd reads as running, not stopped", () => {
+  // Started from a terminal: the unit is failed (it tripped over the lock)
+  // but the API answers and folders are in sync.
+  const outside = snapshot({
+    service: { exists: true, active: "failed", enabled: "disabled", running: false },
+    devices: [device()],
+    folders: [folder({ globalBytes: 100, needBytes: 50 })]
+  })
+  assert.equal(Model.daemonRunning(outside), true)
+  assert.equal(Model.runningOutsideSystemd(outside), true)
+  assert.equal(Model.overallState(outside).key, "behind")
+  assert.equal(Model.heroMeta(outside, 0, 0), "1/1 devices · 1 folder · outside systemd")
+  assert.equal(Model.barLabelText("percent", outside, 0, 0), "50%")
+
+  assert.equal(Model.heroMeta(snapshot({ service: { running: false } }), 0, 0), "Running · outside systemd")
+  assert.equal(Model.runningOutsideSystemd(snapshot()), false)
+  assert.equal(Model.runningOutsideSystemd(snapshot({ service: { running: false }, api: { reachable: false } })), false)
 })
 
 test("shortDeviceId and relativeTime stay readable", () => {

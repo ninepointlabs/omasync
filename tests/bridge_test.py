@@ -170,6 +170,50 @@ class ServiceEnvironmentTest(unittest.TestCase):
         self.assertIn('"disable": ["disable"]', code)
         self.assertNotIn("--now", code)
 
+    def test_adopt_shuts_down_the_stray_daemon_before_starting_the_unit(self):
+        calls = []
+        api_calls = []
+        # The stray copy answers until it has been asked to shut down.
+        state = {"up": True}
+
+        def fake_api(base, key, path, method="GET", body=None, timeout=None):
+            api_calls.append((method, path))
+            if path == "/rest/system/shutdown":
+                state["up"] = False
+                return {}, None
+            return ({}, None) if state["up"] else (None, "connection refused")
+
+        def fake_run(argv, timeout=15):
+            calls.append(argv[2:])
+            return 0, "", ""
+
+        emitted = []
+        patches = {
+            "api": fake_api,
+            "run": fake_run,
+            "unit_exists": lambda: True,
+            "read_gui_config": lambda: ("http://127.0.0.1:8384", "k", None),
+            "service_state": lambda: {"running": True},
+            "emit": lambda payload: (emitted.append(payload), (_ for _ in ()).throw(SystemExit(0))),
+        }
+        originals = {name: getattr(bridge, name) for name in patches}
+        original_sleep = bridge.time.sleep
+        try:
+            for name, value in patches.items():
+                setattr(bridge, name, value)
+            bridge.time.sleep = lambda _seconds: None
+            with self.assertRaises(SystemExit):
+                bridge.adopt()
+        finally:
+            for name, value in originals.items():
+                setattr(bridge, name, value)
+            bridge.time.sleep = original_sleep
+
+        self.assertIn(("POST", "/rest/system/shutdown"), api_calls)
+        self.assertEqual(calls, [["reset-failed", bridge.UNIT], ["start", bridge.UNIT]])
+        self.assertEqual(emitted[-1]["ok"], True)
+        self.assertEqual(emitted[-1]["action"], "adopt")
+
 
 if __name__ == "__main__":
     unittest.main()

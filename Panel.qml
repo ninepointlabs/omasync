@@ -62,9 +62,9 @@ Panel {
     ? ""
     : Model.barLabelText(barLabelMode, root.syncthing.snapshot, root.syncthing.inRate, root.syncthing.outRate)
 
-  readonly property string toggleHint: root.syncthing.serviceRunning
-    ? "Stop the Syncthing service"
-    : "Start the Syncthing service"
+  readonly property string toggleHint: root.syncthing.externallyManaged
+    ? "Stop Syncthing (started outside systemd)"
+    : (root.syncthing.serviceRunning ? "Stop the Syncthing service" : "Start the Syncthing service")
 
   // ------------------------------------------------------------- cursor
 
@@ -99,7 +99,8 @@ Panel {
         icon: root.syncthing.autostart ? "󰄬" : "󰅖",
         label: root.syncthing.autostart ? "Start at login: on" : "Start at login: off"
       })
-      if (root.syncthing.serviceRunning) actions.push({ key: "restart", icon: "󰜉", label: "Restart Syncthing" })
+      if (root.syncthing.externallyManaged) actions.push({ key: "restart", icon: "󰜉", label: "Hand over to systemd" })
+      else if (root.syncthing.serviceRunning) actions.push({ key: "restart", icon: "󰜉", label: "Restart Syncthing" })
     }
     return actions
   }
@@ -350,7 +351,7 @@ Panel {
             // The hero's trailingControl resolves `root` to PanelHero, so
             // panel state is reached through this wrapper instead.
             readonly property bool ringVisible: root.isCursor("header", 0)
-            readonly property bool canToggle: root.syncthing.unitExists
+            readonly property bool canToggle: root.syncthing.unitExists || root.syncthing.externallyManaged
             function focusHero() { root.setCursor("header", 0) }
             function toggle() { root.syncthing.toggleService() }
 
@@ -428,6 +429,12 @@ Panel {
             visible: root.syncthing.installed && root.syncthing.unitExists && !root.syncthing.serviceRunning
             width: parent.width
             message: "Syncthing is stopped. Turn it on to see folders and devices."
+          }
+
+          NoticeRow {
+            visible: root.syncthing.externallyManaged && root.syncthing.unitExists
+            width: parent.width
+            message: "Syncthing is running, but it was started outside systemd (from a terminal, say), so systemd will not restart it if it crashes. Use Hand over to systemd below to fix that."
           }
 
           NoticeRow {
