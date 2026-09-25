@@ -333,3 +333,13 @@ test("shortDeviceId and relativeTime stay readable", () => {
   assert.equal(Model.relativeTime("2026-09-25T09:30:00Z", now), "30m ago")
   assert.equal(Model.relativeTime("nonsense", now), "")
 })
+
+test("notificationText keeps a remote name out of option position", () => {
+  // omarchy-notification-send reads option flags before the headline, so a
+  // device that names itself after one would otherwise eat the text after it.
+  assert.equal(Model.notificationText("-u"), " -u")
+  assert.equal(Model.notificationText("--image=/etc/passwd"), " --image=/etc/passwd")
+  assert.equal(Model.notificationText("Laptop"), "Laptop")
+  assert.equal(Model.notificationText(""), "")
+  assert.equal(Model.notificationText(undefined), "")
+})

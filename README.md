@@ -25,8 +25,8 @@ It also starts and stops the daemon, which the Web GUI cannot do.
 - Restart the service, or restart Syncthing itself
 - Toggle start-at-login, which changes only what happens at the *next* login
   and never disturbs a daemon that is currently running
-- Everything goes through `systemctl --user`, so there is no `sudo` and no
-  polkit prompt, ever
+- Everything goes through `systemctl --user`. No `sudo` or `pkexec` is
+  required, and no polkit prompt is ever raised
 
 **Folders**
 
@@ -47,7 +47,9 @@ It also starts and stops the daemon, which the Web GUI cannot do.
 
 - Incoming device invites can be accepted or dismissed in place
 - Folders another device has offered to share can be accepted — creating the
-  folder under `~/Sync/<label>` — or dismissed
+  folder under `~/Sync/<label>` — or dismissed. The offered label is chosen by
+  the remote device, so it is reduced to a single plain directory name: an
+  accepted share can only ever land directly inside `~/Sync`
 
 **Everything else**
 
@@ -91,6 +93,24 @@ Or from a clone:
 git clone https://github.com/ninepointlabs/omasync \
   ~/.config/omarchy/plugins/ninepointlabs.omasync
 omarchy plugin enable ninepointlabs.omasync --section right
+```
+
+## Remove
+
+```bash
+omarchy plugin remove ninepointlabs.omasync
+```
+
+That disables the widget in the bar and removes the plugin folder — deleted
+outright when it is a git clone, moved to a timestamped backup beside it
+otherwise. OmaSync keeps no state of its own beyond the widget's entry in
+`~/.config/omarchy/shell.json`, and it never touches Syncthing's own
+configuration: the daemon, its config and your synced folders are left exactly
+as they were. To remove Syncthing too:
+
+```bash
+systemctl --user disable --now syncthing.service
+omarchy pkg remove syncthing
 ```
 
 ## Mouse
@@ -186,6 +206,28 @@ hot-reloads it. `Model.js` is different: the QML engine caches imported
 JavaScript, so a change there needs `omarchy restart shell` — neither saving
 the file nor `omarchy-shell shell rescanPlugins` is enough, and the panel will
 keep rendering the old logic against new data until you restart.
+
+## Security
+
+- The only program the plugin runs is `bin/omasync-bridge`, invoked by absolute
+  path under `/usr/bin/python3 -I -S`. Everything it starts (`systemctl`,
+  `xdg-open`, `wl-copy`, `omarchy-notification-send`) is spawned as an argument
+  vector, never through a shell.
+- No `sudo`, no `pkexec`, no sudoers policy, no privileged helper. The service
+  controls use the per-user systemd manager only.
+- The Syncthing API key is read from your local `config.xml`, sent only as an
+  `X-API-Key` header to the loopback address, and never written to the panel's
+  state, a log, or a notification. A wildcard GUI bind is still dialled on
+  `127.0.0.1`.
+- Nothing is downloaded or executed from the network, and the plugin ships no
+  binaries.
+- Data that arrives from a remote Syncthing device — device names, folder
+  labels — is treated as untrusted: it is rendered as plain text, kept out of
+  option position in the notification command, and reduced to a safe single
+  directory name before it can influence a path on disk.
+
+To report a problem privately, open a [security
+advisory](https://github.com/ninepointlabs/omasync/security/advisories/new).
 
 ## License
 

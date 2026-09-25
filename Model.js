@@ -379,6 +379,17 @@ function indexBy(list, key) {
 // Parse one line of bridge output. The bridge always prints a single JSON
 // object, but a crashed interpreter or a truncated pipe would not, and the
 // panel must degrade rather than throw inside a signal handler.
+// `omarchy-notification-send` parses option flags before it takes the headline,
+// so a remote device that names itself "-u" or "--image=x" would otherwise have
+// its name read as an option and swallow the text after it. Nothing arriving
+// from the network may reach that tool in option position; a leading space is
+// invisible in the bubble and can never match a flag.
+function notificationText(value) {
+  var text = String(value === undefined || value === null ? "" : value)
+  return text.charAt(0) === "-" ? " " + text : text
+}
+
+
 function parseBridge(text) {
   var raw = String(text || "").trim()
   if (raw === "") return { ok: false, error: "no response" }
@@ -430,6 +441,7 @@ if (typeof module !== "undefined" && module.exports) {
     heroMeta: heroMeta,
     barLabelText: barLabelText,
     notifiableChanges: notifiableChanges,
+    notificationText: notificationText,
     parseBridge: parseBridge,
     fileUrlPath: fileUrlPath
   }

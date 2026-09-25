@@ -323,8 +323,8 @@ Item {
         "--app-name", "OmaSync",
         "-g", "󰓦",
         "-u", event.urgent ? "normal" : "low",
-        String(event.title || "OmaSync"),
-        String(event.body || "")
+        Model.notificationText(event.title || "OmaSync"),
+        Model.notificationText(event.body || "")
       ])
     }
     // The de-dup map only needs to outlive the condition that produced it;

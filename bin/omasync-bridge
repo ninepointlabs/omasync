@@ -16,6 +16,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -468,6 +469,27 @@ def accept_device(device_id, name):
     emit({"ok": True})
 
 
+# The label and the folder ID of an offered share are both chosen by the remote
+# device, so neither may be dropped into a local path as it arrives. A label of
+# "/etc", "../../.config/systemd/user" or anything else carrying a separator
+# would otherwise place a folder Syncthing then writes into somewhere the user
+# never agreed to. Only a single plain directory name survives this.
+UNSAFE_IN_DIRNAME = re.compile(r"[^A-Za-z0-9 ._-]+")
+
+
+def safe_dirname(*candidates):
+    """First candidate that reduces to a usable single path component."""
+    for candidate in candidates:
+        name = UNSAFE_IN_DIRNAME.sub("-", str(candidate or ""))
+        # Leading dots would hide the folder or, as "..", name the parent; the
+        # separators are already gone, so trimming the edges is all that is
+        # left to do.
+        name = name.strip(" .-")[:64].strip(" .-")
+        if name:
+            return name
+    return "folder"
+
+
 def accept_folder(folder_id, label, device_id):
     """Accept an offered folder share.
 
@@ -493,10 +515,17 @@ def accept_folder(folder_id, label, device_id):
         if error:
             fail(error)
         emit({"ok": True})
+    root = os.path.join(os.path.expanduser("~"), "Sync")
+    destination = os.path.join(root, safe_dirname(label, folder_id))
+    # safe_dirname always returns one component, so this only ever fires if
+    # that guarantee is broken later; a share is never worth writing outside
+    # the directory the user was shown.
+    if os.path.dirname(destination) != root:
+        fail("refusing an unsafe sync path for %s" % folder_id)
     body = {
         "id": folder_id,
         "label": label or folder_id,
-        "path": os.path.join(os.path.expanduser("~"), "Sync", label or folder_id),
+        "path": destination,
         "type": "sendreceive",
         "devices": [{"deviceID": device_id}],
     }

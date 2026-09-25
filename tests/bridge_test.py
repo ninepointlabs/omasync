@@ -215,5 +215,59 @@ class ServiceEnvironmentTest(unittest.TestCase):
         self.assertEqual(emitted[-1]["action"], "adopt")
 
 
+class OfferedFolderPathTest(unittest.TestCase):
+    """The label on an offered share is chosen by the remote device."""
+
+    def test_separators_and_traversal_never_leave_one_component(self):
+        for label in (
+            "/etc",
+            "../../.config/systemd/user",
+            "..",
+            "...",
+            "sub/dir",
+            "back\\slash",
+            ".hidden",
+            "  ",
+        ):
+            name = bridge.safe_dirname(label, "fallback-id")
+            self.assertNotIn("/", name, label)
+            self.assertNotIn("\\", name, label)
+            self.assertFalse(name.startswith("."), label)
+            self.assertTrue(name, label)
+
+    def test_ordinary_labels_are_left_alone(self):
+        self.assertEqual(bridge.safe_dirname("Family Photos", "abcd-1234"), "Family Photos")
+        self.assertEqual(bridge.safe_dirname("", "abcd-1234"), "abcd-1234")
+        self.assertEqual(bridge.safe_dirname("", ""), "folder")
+        self.assertEqual(len(bridge.safe_dirname("x" * 300, "")), 64)
+
+    def test_accept_folder_stays_under_sync(self):
+        posted = []
+
+        def fake_api(base, key, path, method="GET", body=None, timeout=None):
+            if method == "GET":
+                return None, "HTTP 404 on %s" % path
+            posted.append((path, body))
+            return {}, None
+
+        originals = {name: getattr(bridge, name) for name in ("api", "read_gui_config", "emit")}
+        try:
+            bridge.api = fake_api
+            bridge.read_gui_config = lambda: ("http://127.0.0.1:8384", "k", None)
+            bridge.emit = lambda payload: (_ for _ in ()).throw(SystemExit(0))
+            with self.assertRaises(SystemExit):
+                bridge.accept_folder("shared", "../../.config/autostart", "DEVICE")
+        finally:
+            for name, value in originals.items():
+                setattr(bridge, name, value)
+
+        path = posted[-1][1]["path"]
+        expected_root = os.path.join(os.path.expanduser("~"), "Sync")
+        self.assertEqual(os.path.dirname(path), expected_root)
+        self.assertNotIn(os.path.basename(path), (".", ".."))
+        self.assertEqual(os.path.realpath(os.path.dirname(path)),
+                         os.path.realpath(expected_root))
+
+
 if __name__ == "__main__":
     unittest.main()
