@@ -7,6 +7,8 @@ Run with the system interpreter so it matches how the plugin invokes it:
 import importlib.util
 import json
 import os
+import ssl
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -267,6 +269,68 @@ class OfferedFolderPathTest(unittest.TestCase):
         self.assertNotIn(os.path.basename(path), (".", ".."))
         self.assertEqual(os.path.realpath(os.path.dirname(path)),
                          os.path.realpath(expected_root))
+
+
+OPENSSL = "/usr/bin/openssl"
+
+
+@unittest.skipUnless(os.path.isfile(OPENSSL), "openssl is needed to mint a test certificate")
+class GuiTlsTest(unittest.TestCase):
+    """A TLS GUI is reached by pinning Syncthing's own certificate."""
+
+    def config_root(self, certificate=None):
+        """A config directory, optionally holding an https-cert.pem."""
+        root = tempfile.mkdtemp()
+        directory = os.path.join(root, "state", "syncthing")
+        os.makedirs(directory)
+        with open(os.path.join(directory, "config.xml"), "w") as handle:
+            handle.write(CONFIG_TEMPLATE % {
+                "listen": "dynamic", "tls": "true",
+                "address": "127.0.0.1:8384", "key": "SECRETKEY",
+            })
+        path = os.path.join(directory, "https-cert.pem")
+        if certificate == "real":
+            subprocess.run(
+                [OPENSSL, "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                 "-keyout", os.path.join(directory, "https-key.pem"),
+                 "-out", path, "-days", "1", "-subj", "/CN=syncthing"],
+                check=True, capture_output=True,
+            )
+        elif certificate == "junk":
+            with open(path, "w") as handle:
+                handle.write("not a certificate\n")
+        return root
+
+    def context_for(self, base, certificate=None):
+        root = self.config_root(certificate)
+        original = dict(os.environ)
+        try:
+            os.environ.pop("STCONFDIR", None)
+            os.environ.pop("STHOMEDIR", None)
+            os.environ["XDG_STATE_HOME"] = os.path.join(root, "state")
+            os.environ["XDG_CONFIG_HOME"] = os.path.join(root, "config")
+            return bridge.gui_tls_context(base)
+        finally:
+            os.environ.clear()
+            os.environ.update(original)
+
+    def test_plain_http_needs_no_context(self):
+        self.assertIsNone(self.context_for("http://127.0.0.1:8384", "real"))
+
+    def test_https_pins_syncthings_own_certificate(self):
+        context = self.context_for("https://127.0.0.1:8384", "real")
+        self.assertIsNotNone(context)
+        # Still verifying -- against that one certificate rather than the
+        # system trust store, which cannot vouch for a self-signed GUI.
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        # The generated certificate names "syncthing", not 127.0.0.1.
+        self.assertFalse(context.check_hostname)
+
+    def test_https_without_a_certificate_keeps_default_verification(self):
+        self.assertIsNone(self.context_for("https://127.0.0.1:8384"))
+
+    def test_an_unreadable_certificate_is_never_trusted(self):
+        self.assertIsNone(self.context_for("https://127.0.0.1:8384", "junk"))
 
 
 if __name__ == "__main__":

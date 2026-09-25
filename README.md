@@ -219,6 +219,11 @@ keep rendering the old logic against new data until you restart.
   `X-API-Key` header to the loopback address, and never written to the panel's
   state, a log, or a notification. A wildcard GUI bind is still dialled on
   `127.0.0.1`.
+- A GUI configured with `tls` presents the certificate Syncthing generated for
+  itself, which no authority signs. Rather than skipping verification, the
+  bridge pins that certificate — the `https-cert.pem` sitting beside your
+  `config.xml` — as the only one it will accept, so anything else answering on
+  that port is still refused.
 - Nothing is downloaded or executed from the network, and the plugin ships no
   binaries.
 - Data that arrives from a remote Syncthing device — device names, folder

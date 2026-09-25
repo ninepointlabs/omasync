@@ -17,6 +17,7 @@
 import json
 import os
 import re
+import ssl
 import subprocess
 import sys
 import time
@@ -103,6 +104,50 @@ def read_gui_config():
 # ------------------------------------------------------------------- http
 
 
+def gui_certificate():
+    """The certificate Syncthing generated for its own GUI, if it is there."""
+    for directory in config_dir():
+        if not os.path.isfile(os.path.join(directory, "config.xml")):
+            continue
+        candidate = os.path.join(directory, "https-cert.pem")
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def gui_tls_context(base):
+    """Trust exactly Syncthing's own GUI certificate, or None for plain HTTP.
+
+    A TLS GUI presents a certificate Syncthing generated for itself, which no
+    authority signs, so the default trust store cannot validate it: with
+    `tls` set to true in the config, every call fails and the panel reports
+    the daemon as unreachable however healthy it is.
+
+    Verification is not turned off to fix that. Instead the certificate
+    Syncthing wrote beside its own config -- the one file that says what this
+    daemon is -- becomes the only acceptable anchor for the connection, so
+    anything else answering on that port is still rejected. Only the hostname
+    check is dropped, because the generated certificate names "syncthing"
+    rather than the loopback address it is dialled on.
+
+    If the certificate is missing the context is left alone, and an unverified
+    GUI fails loudly rather than quietly becoming trusted.
+    """
+    if urllib.parse.urlsplit(base).scheme != "https":
+        return None
+    certificate = gui_certificate()
+    if certificate is None:
+        return None
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_REQUIRED
+    try:
+        context.load_verify_locations(cafile=certificate)
+    except (ssl.SSLError, OSError):
+        return None
+    return context
+
+
 def api(base, key, path, method="GET", body=None, timeout=HTTP_TIMEOUT):
     """One REST call. Returns (parsed_json, error_string)."""
     url = base + path
@@ -116,7 +161,11 @@ def api(base, key, path, method="GET", body=None, timeout=HTTP_TIMEOUT):
     try:
         # No proxy handler: the daemon is on loopback and an http_proxy set in
         # the session must not swallow the call.
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        handlers = [urllib.request.ProxyHandler({})]
+        context = gui_tls_context(base)
+        if context is not None:
+            handlers.append(urllib.request.HTTPSHandler(context=context))
+        opener = urllib.request.build_opener(*handlers)
         with opener.open(request, timeout=timeout) as response:
             raw = response.read()
     except urllib.error.HTTPError as exc:
