@@ -1,0 +1,175 @@
+"""Tests for the parts of omasync-bridge that do not need a live daemon.
+
+Run with the system interpreter so it matches how the plugin invokes it:
+    /usr/bin/python3 -I -B -m unittest discover -s tests -p '*_test.py'
+"""
+
+import importlib.util
+import json
+import os
+import sys
+import tempfile
+import unittest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def load_bridge():
+    """Import bin/omasync-bridge, which has no .py extension."""
+    path = os.path.join(ROOT, "bin", "omasync-bridge")
+    spec = importlib.util.spec_from_loader(
+        "syncthing_bridge", importlib.machinery.SourceFileLoader("syncthing_bridge", path)
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+bridge = load_bridge()
+
+
+CONFIG_TEMPLATE = """<configuration version="38">
+    <folder id="docs" label="Documents" path="/home/tim/Documents"></folder>
+    <options>
+        <listenAddress>%(listen)s</listenAddress>
+    </options>
+    <gui enabled="true" tls="%(tls)s" sendBasicAuthPrompt="false">
+        <address>%(address)s</address>
+        <apikey>%(key)s</apikey>
+    </gui>
+</configuration>
+"""
+
+
+class ConfigDiscoveryTest(unittest.TestCase):
+    def write_config(self, directory, **values):
+        values.setdefault("listen", "dynamic")
+        values.setdefault("tls", "false")
+        values.setdefault("address", "127.0.0.1:8384")
+        values.setdefault("key", "SECRETKEY")
+        os.makedirs(directory, exist_ok=True)
+        with open(os.path.join(directory, "config.xml"), "w") as handle:
+            handle.write(CONFIG_TEMPLATE % values)
+
+    def read_with_state_home(self, root):
+        original = dict(os.environ)
+        try:
+            os.environ.pop("STCONFDIR", None)
+            os.environ.pop("STHOMEDIR", None)
+            os.environ["XDG_STATE_HOME"] = os.path.join(root, "state")
+            os.environ["XDG_CONFIG_HOME"] = os.path.join(root, "config")
+            return bridge.read_gui_config()
+        finally:
+            os.environ.clear()
+            os.environ.update(original)
+
+    def test_reads_key_and_address_from_gui_block(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.write_config(os.path.join(root, "state", "syncthing"))
+            base, key, path = self.read_with_state_home(root)
+            self.assertEqual(base, "http://127.0.0.1:8384")
+            self.assertEqual(key, "SECRETKEY")
+            self.assertTrue(path.endswith("config.xml"))
+
+    def test_ignores_the_listen_address_outside_the_gui_block(self):
+        # A naive scan for <address> picks up <listenAddress>dynamic and dials
+        # a host called "dynamic"; only the one inside <gui> is the API.
+        with tempfile.TemporaryDirectory() as root:
+            self.write_config(os.path.join(root, "state", "syncthing"), listen="dynamic")
+            base, _, _ = self.read_with_state_home(root)
+            self.assertEqual(base, "http://127.0.0.1:8384")
+
+    def test_wildcard_bind_is_dialled_on_loopback(self):
+        for address in ("0.0.0.0:8384", ":8384"):
+            with self.subTest(address=address):
+                with tempfile.TemporaryDirectory() as root:
+                    self.write_config(os.path.join(root, "state", "syncthing"), address=address)
+                    base, _, _ = self.read_with_state_home(root)
+                    self.assertEqual(base, "http://127.0.0.1:8384")
+
+    def test_tls_gui_uses_https(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.write_config(os.path.join(root, "state", "syncthing"), tls="true")
+            base, _, _ = self.read_with_state_home(root)
+            self.assertEqual(base, "https://127.0.0.1:8384")
+
+    def test_falls_back_to_the_legacy_config_directory(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.write_config(os.path.join(root, "config", "syncthing"), key="LEGACY")
+            base, key, _ = self.read_with_state_home(root)
+            self.assertEqual(key, "LEGACY")
+            self.assertEqual(base, "http://127.0.0.1:8384")
+
+    def test_missing_and_keyless_configs_read_as_unconfigured(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertEqual(self.read_with_state_home(root), (None, None, None))
+            self.write_config(os.path.join(root, "state", "syncthing"), key="")
+            self.assertEqual(self.read_with_state_home(root), (None, None, None))
+
+    def test_unparseable_config_does_not_raise(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = os.path.join(root, "state", "syncthing")
+            os.makedirs(directory)
+            with open(os.path.join(directory, "config.xml"), "w") as handle:
+                handle.write("<configuration><gui>")
+            self.assertEqual(self.read_with_state_home(root), (None, None, None))
+
+    def test_explicit_confdir_wins(self):
+        with tempfile.TemporaryDirectory() as root:
+            explicit = os.path.join(root, "explicit")
+            self.write_config(explicit, key="EXPLICIT")
+            self.write_config(os.path.join(root, "state", "syncthing"), key="STATE")
+            original = dict(os.environ)
+            try:
+                os.environ["STCONFDIR"] = explicit
+                _, key, _ = bridge.read_gui_config()
+            finally:
+                os.environ.clear()
+                os.environ.update(original)
+            self.assertEqual(key, "EXPLICIT")
+
+
+class ServiceEnvironmentTest(unittest.TestCase):
+    def test_run_forwards_the_session_bus_variables(self):
+        # Without these, `systemctl --user` cannot reach the user manager and
+        # every unit reads as "unknown".
+        original = dict(os.environ)
+        try:
+            os.environ["XDG_RUNTIME_DIR"] = "/run/user/4242"
+            os.environ["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=/run/user/4242/bus"
+            code, out, _ = bridge.run(
+                [sys.executable, "-c",
+                 "import json,os;print(json.dumps(dict(os.environ)))"]
+            )
+        finally:
+            os.environ.clear()
+            os.environ.update(original)
+        self.assertEqual(code, 0)
+        child = json.loads(out)
+        self.assertEqual(child["XDG_RUNTIME_DIR"], "/run/user/4242")
+        self.assertEqual(child["DBUS_SESSION_BUS_ADDRESS"], "unix:path=/run/user/4242/bus")
+        self.assertEqual(child["PATH"], "/usr/bin:/bin")
+
+    def test_run_reports_a_missing_program_without_raising(self):
+        code, _, err = bridge.run(["/nonexistent/program"])
+        self.assertEqual(code, 1)
+        self.assertTrue(err)
+
+    def test_autostart_never_couples_to_start_or_stop(self):
+        # "Start at login" must not stop a running daemon, so the enable and
+        # disable verbs must stay free of --now.
+        with open(os.path.join(ROOT, "bin", "omasync-bridge")) as handle:
+            source = handle.read()
+        body = source.split("def service_action", 1)[1].split("def post", 1)[0]
+        # The comment above the verbs explains why --now is absent, so the
+        # check has to look at code lines only.
+        code = "\n".join(
+            line for line in body.splitlines() if not line.strip().startswith("#")
+        )
+        self.assertIn('"enable": ["enable"]', code)
+        self.assertIn('"disable": ["disable"]', code)
+        self.assertNotIn("--now", code)
+
+
+if __name__ == "__main__":
+    unittest.main()

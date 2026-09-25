@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Every check this plugin ships. Run from anywhere.
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+echo "== manifest =="
+omarchy plugin validate "$root"
+echo "ok"
+
+echo "== bridge (system interpreter, as the plugin invokes it) =="
+/usr/bin/python3 -I -B -m unittest discover -s "$root/tests" -p '*_test.py'
+
+echo "== model =="
+node --test "$root/tests"/*.test.js
+
+echo "== qml parses =="
+for file in "$root"/*.qml; do
+  # qs.Commons and qs.Ui only resolve inside Quickshell, so unresolved-import
+  # noise is expected; a syntax error is not.
+  if /usr/lib/qt6/bin/qmllint "$file" 2>&1 | grep -qiE "syntax error|Expected token|Unexpected token"; then
+    echo "FAIL: $file"
+    /usr/lib/qt6/bin/qmllint "$file"
+    exit 1
+  fi
+done
+echo "ok"

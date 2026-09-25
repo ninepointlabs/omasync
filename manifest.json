@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "ninepointlabs.omasync",
+  "name": "OmaSync",
+  "version": "0.1.0",
+  "author": "Ninepoint Labs",
+  "license": "MIT",
+  "description": "Syncthing folders, devices, transfer rates and pending invites in the Omarchy bar, with start/stop control of the syncthing user service.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "OmaSync",
+    "description": "Start and stop Syncthing, watch folders sync, pause folders and devices, and accept incoming share invites.",
+    "category": "Network",
+    "aliases": [
+      "omasync",
+      "syncthing",
+      "sync",
+      "files"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 10,
+      "notify": true,
+      "barLabel": "none"
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 2,
+        "max": 600,
+        "step": 1,
+        "defaultValue": 10,
+        "description": "How often the full status is re-read. Syncthing's own event stream already pushes changes as they happen, so this is only a backstop."
+      },
+      {
+        "key": "notify",
+        "type": "boolean",
+        "label": "Notifications",
+        "defaultValue": true,
+        "description": "Announce devices connecting and disconnecting, folders finishing or failing, and incoming device and folder invites."
+      },
+      {
+        "key": "barLabel",
+        "type": "enum",
+        "label": "Bar label",
+        "options": [
+          "none",
+          "rate",
+          "percent",
+          "devices"
+        ],
+        "defaultValue": "none",
+        "description": "none: the icon only. rate: current transfer speed. percent: overall sync completion, hidden at 100%. devices: connected out of total. Always hidden on a vertical bar."
+      }
+    ]
+  }
+}

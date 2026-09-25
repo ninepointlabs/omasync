@@ -1,0 +1,534 @@
+#!/usr/bin/python3 -IS
+# omasync-bridge: the only program the Syncthing plugin starts.
+#
+# It owns three things the QML side should not do itself: finding the local
+# Syncthing config and its API key, talking to the REST API, and driving the
+# systemd user unit. Every subcommand prints exactly one JSON object on stdout
+# and exits 0, even on failure -- errors travel in the payload as
+# {"ok": false, "error": "..."} so the panel always has something to render.
+#
+# Invoke with a fixed interpreter and no PATH search:
+#   /usr/bin/python3 -I -S -B /abs/plugin/bin/omasync-bridge snapshot
+#
+# The -I flag isolates the interpreter (no user site-packages, no PYTHON*
+# environment), which keeps a stray mise/conda Python on PATH from changing
+# what this script imports. Only the standard library is used.
+
+import json
+import os
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+
+SYSTEMCTL = "/usr/bin/systemctl"
+SYNCTHING = "/usr/bin/syncthing"
+UNIT = "syncthing.service"
+
+# Long enough that a slow first scan still answers, short enough that a wedged
+# daemon does not freeze the panel behind a pending Process.
+HTTP_TIMEOUT = 8.0
+# The events long-poll blocks server-side until something happens; its ceiling
+# is the Syncthing `timeout` query parameter plus a little slack.
+EVENT_TIMEOUT = 70.0
+
+
+def fail(message, **extra):
+    payload = {"ok": False, "error": str(message)}
+    payload.update(extra)
+    emit(payload)
+
+
+def emit(payload):
+    json.dump(payload, sys.stdout, separators=(",", ":"))
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+    sys.exit(0)
+
+
+# --------------------------------------------------------------- discovery
+
+
+def config_dir():
+    """Where Syncthing keeps config.xml, newest layout first.
+
+    Syncthing 2.x moved the config out of ~/.config/syncthing and into the
+    XDG state directory, but an installation upgraded in place can still be
+    running from the old path, so both are probed.
+    """
+    explicit = os.environ.get("STCONFDIR") or os.environ.get("STHOMEDIR")
+    if explicit:
+        return [explicit]
+    home = os.path.expanduser("~")
+    state = os.environ.get("XDG_STATE_HOME") or os.path.join(home, ".local", "state")
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+    return [os.path.join(state, "syncthing"), os.path.join(config, "syncthing")]
+
+
+def read_gui_config():
+    """Return (base_url, api_key, config_path) or (None, None, None).
+
+    Reads only the <gui> block: the API key, the bind address, and whether the
+    GUI speaks TLS. A config that exists but has no API key yet (Syncthing
+    interrupted mid-first-run) is treated as unconfigured rather than an error.
+    """
+    for directory in config_dir():
+        path = os.path.join(directory, "config.xml")
+        if not os.path.isfile(path):
+            continue
+        try:
+            gui = ET.parse(path).getroot().find("gui")
+        except (ET.ParseError, OSError):
+            continue
+        if gui is None:
+            continue
+        key = (gui.findtext("apikey") or "").strip()
+        address = (gui.findtext("address") or "127.0.0.1:8384").strip()
+        scheme = "https" if gui.get("tls", "false").lower() == "true" else "http"
+        if not key:
+            continue
+        # A bare ":8384" or "0.0.0.0:8384" bind is still reachable on loopback,
+        # and loopback is the only address this plugin should ever dial.
+        host, _, port = address.rpartition(":")
+        if host in ("", "0.0.0.0", "[::]", "::"):
+            host = "127.0.0.1"
+        return "%s://%s:%s" % (scheme, host, port or "8384"), key, path
+    return None, None, None
+
+
+# ------------------------------------------------------------------- http
+
+
+def api(base, key, path, method="GET", body=None, timeout=HTTP_TIMEOUT):
+    """One REST call. Returns (parsed_json, error_string)."""
+    url = base + path
+    data = None
+    request = urllib.request.Request(url, method=method)
+    request.add_header("X-API-Key", key)
+    if body is not None:
+        data = json.dumps(body).encode()
+        request.add_header("Content-Type", "application/json")
+        request.data = data
+    try:
+        # No proxy handler: the daemon is on loopback and an http_proxy set in
+        # the session must not swallow the call.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=timeout) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as exc:
+        return None, "HTTP %s on %s" % (exc.code, path)
+    except urllib.error.URLError as exc:
+        return None, str(getattr(exc, "reason", exc))
+    except OSError as exc:
+        return None, str(exc)
+    if not raw:
+        return {}, None
+    try:
+        return json.loads(raw.decode("utf-8", "replace")), None
+    except ValueError:
+        return None, "unparseable response from %s" % path
+
+
+# ---------------------------------------------------------------- systemd
+
+
+def run(argv, timeout=15):
+    # `systemctl --user` reaches the per-user manager over the session bus, so
+    # XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS have to survive into the
+    # child. Without them it fails with "Failed to connect to user scope bus"
+    # and every unit reads as unknown. Nothing else is inherited.
+    env = {"PATH": "/usr/bin:/bin", "HOME": os.path.expanduser("~")}
+    for name in ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "USER", "LOGNAME"):
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
+    try:
+        done = subprocess.run(
+            argv, capture_output=True, text=True, timeout=timeout, env=env
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return 1, "", str(exc)
+    return done.returncode, done.stdout.strip(), done.stderr.strip()
+
+
+def unit_exists():
+    code, out, _ = run([SYSTEMCTL, "--user", "list-unit-files", UNIT, "--no-legend"])
+    return code == 0 and UNIT in out
+
+
+def service_state():
+    """Runtime and install state of the per-user Syncthing unit.
+
+    `is-active` and `is-enabled` both exit non-zero for the negative answers,
+    so the exit status is ignored and only the printed word is used.
+    """
+    _, active, _ = run([SYSTEMCTL, "--user", "is-active", UNIT])
+    _, enabled, _ = run([SYSTEMCTL, "--user", "is-enabled", UNIT])
+    return {
+        "unit": UNIT,
+        "exists": unit_exists(),
+        "active": active or "unknown",
+        "enabled": enabled or "unknown",
+        "running": active == "active",
+    }
+
+
+# --------------------------------------------------------------- snapshot
+
+
+def folder_rows(base, key, folders):
+    rows = []
+    for folder in folders:
+        fid = folder.get("id", "")
+        status, _ = api(base, key, "/rest/db/status?folder=" + urllib.parse.quote(fid))
+        status = status or {}
+        globalb = status.get("globalBytes", 0) or 0
+        needb = status.get("needBytes", 0) or 0
+        # Local completion: what fraction of the cluster's view of this folder
+        # is already on this machine. An empty folder counts as complete.
+        completion = 100.0 if globalb <= 0 else max(0.0, min(100.0, (globalb - needb) * 100.0 / globalb))
+        rows.append(
+            {
+                "id": fid,
+                "label": folder.get("label") or fid,
+                "path": folder.get("path", ""),
+                "type": folder.get("type", "sendreceive"),
+                "paused": bool(folder.get("paused")),
+                "devices": [d.get("deviceID", "") for d in folder.get("devices", [])],
+                "state": status.get("state", "unknown"),
+                "stateChanged": status.get("stateChanged", ""),
+                "globalBytes": globalb,
+                "localBytes": status.get("localBytes", 0) or 0,
+                "needBytes": needb,
+                "needItems": status.get("needTotalItems", status.get("needItems", 0)) or 0,
+                "errors": status.get("errors", 0) or 0,
+                "pullErrors": status.get("pullErrors", 0) or 0,
+                "completion": round(completion, 2),
+            }
+        )
+    return rows
+
+
+def device_rows(base, key, devices, connections, my_id):
+    conns = (connections or {}).get("connections", {}) or {}
+    rows = []
+    for device in devices:
+        did = device.get("deviceID", "")
+        if did == my_id:
+            continue
+        conn = conns.get(did, {}) or {}
+        completion, _ = api(base, key, "/rest/db/completion?device=" + urllib.parse.quote(did))
+        completion = completion or {}
+        rows.append(
+            {
+                "deviceID": did,
+                "name": device.get("name") or did[:7],
+                "paused": bool(device.get("paused")),
+                "connected": bool(conn.get("connected")),
+                "address": conn.get("address", ""),
+                "clientVersion": conn.get("clientVersion", ""),
+                "type": conn.get("type", ""),
+                "crypto": conn.get("crypto", ""),
+                "inBytesTotal": conn.get("inBytesTotal", 0) or 0,
+                "outBytesTotal": conn.get("outBytesTotal", 0) or 0,
+                "completion": round(float(completion.get("completion", 0) or 0), 2),
+                "needBytes": completion.get("needBytes", 0) or 0,
+                "introducer": bool(device.get("introducer")),
+            }
+        )
+    rows.sort(key=lambda r: (not r["connected"], r["name"].lower()))
+    return rows
+
+
+def snapshot():
+    installed = os.path.isfile(SYNCTHING)
+    service = service_state()
+    base, key, config_path = read_gui_config()
+
+    payload = {
+        "ok": True,
+        "installed": installed,
+        "configured": bool(base),
+        "configPath": config_path or "",
+        "service": service,
+        "api": {"reachable": False, "url": base or ""},
+        "folders": [],
+        "devices": [],
+        "pendingDevices": [],
+        "pendingFolders": [],
+        "errors": [],
+    }
+    if not installed:
+        payload["ok"] = False
+        payload["error"] = "syncthing is not installed"
+        emit(payload)
+    if not base:
+        # No config yet: Syncthing writes one on its very first start, so this
+        # is a first-run state rather than a fault.
+        emit(payload)
+
+    status, error = api(base, key, "/rest/system/status")
+    if error:
+        payload["api"]["error"] = error
+        emit(payload)
+
+    payload["api"]["reachable"] = True
+    my_id = status.get("myID", "")
+    payload["myID"] = my_id
+    payload["uptime"] = status.get("uptime", 0) or 0
+    payload["startTime"] = status.get("startTime", "")
+    payload["discoveryEnabled"] = bool(status.get("discoveryEnabled", False))
+
+    version, _ = api(base, key, "/rest/system/version")
+    version = version or {}
+    payload["version"] = version.get("version", "")
+    payload["codename"] = version.get("codename", "")
+
+    connections, _ = api(base, key, "/rest/system/connections")
+    connections = connections or {}
+    total = connections.get("total", {}) or {}
+    payload["totals"] = {
+        "inBytesTotal": total.get("inBytesTotal", 0) or 0,
+        "outBytesTotal": total.get("outBytesTotal", 0) or 0,
+        "at": total.get("at", ""),
+    }
+
+    config, _ = api(base, key, "/rest/config")
+    config = config or {}
+    devices = config.get("devices", []) or []
+    payload["myName"] = next(
+        (d.get("name", "") for d in devices if d.get("deviceID") == my_id), ""
+    )
+    payload["folders"] = folder_rows(base, key, config.get("folders", []) or [])
+    payload["devices"] = device_rows(base, key, devices, connections, my_id)
+
+    errors, _ = api(base, key, "/rest/system/error")
+    payload["errors"] = ((errors or {}).get("errors") or [])[-10:]
+
+    pending_devices, _ = api(base, key, "/rest/cluster/pending/devices")
+    payload["pendingDevices"] = [
+        {
+            "deviceID": did,
+            "name": info.get("name", ""),
+            "address": info.get("address", ""),
+            "time": info.get("time", ""),
+        }
+        for did, info in (pending_devices or {}).items()
+    ]
+
+    pending_folders, _ = api(base, key, "/rest/cluster/pending/folders")
+    pending_rows = []
+    for fid, info in (pending_folders or {}).items():
+        for did, offer in (info.get("offeredBy", {}) or {}).items():
+            pending_rows.append(
+                {
+                    "folderID": fid,
+                    "label": offer.get("label", "") or fid,
+                    "deviceID": did,
+                    "deviceName": next(
+                        (d.get("name", "") for d in devices if d.get("deviceID") == did), did[:7]
+                    ),
+                    "receiveEncrypted": bool(offer.get("receiveEncrypted")),
+                    "remoteEncrypted": bool(offer.get("remoteEncrypted")),
+                    "time": offer.get("time", ""),
+                }
+            )
+    payload["pendingFolders"] = pending_rows
+    emit(payload)
+
+
+# ----------------------------------------------------------------- events
+
+
+def events(since):
+    """Block on Syncthing's event stream until something happens.
+
+    Returns the event type names and the new `since` cursor. The panel uses
+    this as a change signal, then re-reads a full snapshot -- it is far simpler
+    to reason about than applying event deltas, and a snapshot is cheap.
+    """
+    base, key, _ = read_gui_config()
+    if not base:
+        emit({"ok": False, "error": "not configured", "since": since})
+    query = "/rest/events?since=%d&timeout=60&limit=200" % since
+    data, error = api(base, key, query, timeout=EVENT_TIMEOUT)
+    if error:
+        emit({"ok": False, "error": error, "since": since})
+    data = data or []
+    cursor = since
+    types = []
+    for event in data:
+        cursor = max(cursor, int(event.get("id", cursor) or cursor))
+        etype = event.get("type", "")
+        if etype:
+            types.append(etype)
+    emit({"ok": True, "since": cursor, "types": types, "count": len(data)})
+
+
+# ---------------------------------------------------------------- actions
+
+
+def service_action(action):
+    if action == "status":
+        emit({"ok": True, "service": service_state()})
+    verbs = {
+        "start": ["start"],
+        "stop": ["stop"],
+        "restart": ["restart"],
+        # Deliberately without --now: "start at login" is about the next
+        # login, not about this one. Coupling it to --now would make turning
+        # autostart off also stop a service that is happily running, which is
+        # not what that row says it does. The hero switch owns start/stop.
+        "enable": ["enable"],
+        "disable": ["disable"],
+    }
+    if action not in verbs:
+        fail("unknown service action: %s" % action)
+    if not unit_exists():
+        fail("systemd user unit %s is not installed" % UNIT)
+    code, _, err = run([SYSTEMCTL, "--user"] + verbs[action] + [UNIT], timeout=45)
+    if code != 0:
+        fail(err or "systemctl %s failed" % action, service=service_state())
+    emit({"ok": True, "action": action, "service": service_state()})
+
+
+def post(path, body=None, method="POST"):
+    base, key, _ = read_gui_config()
+    if not base:
+        fail("not configured")
+    _, error = api(base, key, path, method=method, body=body)
+    if error:
+        fail(error)
+    emit({"ok": True})
+
+
+def patch_folder(folder_id, changes):
+    post("/rest/config/folders/" + urllib.parse.quote(folder_id), changes, method="PATCH")
+
+
+def patch_device(device_id, changes):
+    post("/rest/config/devices/" + urllib.parse.quote(device_id), changes, method="PATCH")
+
+
+def accept_device(device_id, name):
+    base, key, _ = read_gui_config()
+    if not base:
+        fail("not configured")
+    body = {"deviceID": device_id, "name": name or device_id[:7]}
+    _, error = api(base, key, "/rest/config/devices", method="POST", body=body)
+    if error:
+        fail(error)
+    emit({"ok": True})
+
+
+def accept_folder(folder_id, label, device_id):
+    """Accept an offered folder share.
+
+    Syncthing has no single "accept" call: an offered folder either does not
+    exist locally yet (create it, shared with the offering device) or exists
+    and simply needs that device added to its device list.
+    """
+    base, key, _ = read_gui_config()
+    if not base:
+        fail("not configured")
+    existing, error = api(base, key, "/rest/config/folders/" + urllib.parse.quote(folder_id))
+    if existing:
+        devices = existing.get("devices", []) or []
+        if not any(d.get("deviceID") == device_id for d in devices):
+            devices.append({"deviceID": device_id})
+        _, error = api(
+            base,
+            key,
+            "/rest/config/folders/" + urllib.parse.quote(folder_id),
+            method="PATCH",
+            body={"devices": devices},
+        )
+        if error:
+            fail(error)
+        emit({"ok": True})
+    body = {
+        "id": folder_id,
+        "label": label or folder_id,
+        "path": os.path.join(os.path.expanduser("~"), "Sync", label or folder_id),
+        "type": "sendreceive",
+        "devices": [{"deviceID": device_id}],
+    }
+    _, error = api(base, key, "/rest/config/folders", method="POST", body=body)
+    if error:
+        fail(error)
+    emit({"ok": True, "path": body["path"]})
+
+
+def dismiss_pending(kind, ident, device_id):
+    if kind == "device":
+        path = "/rest/cluster/pending/devices?device=" + urllib.parse.quote(ident)
+    else:
+        path = "/rest/cluster/pending/folders?folder=" + urllib.parse.quote(ident)
+        if device_id:
+            path += "&device=" + urllib.parse.quote(device_id)
+    post(path, method="DELETE")
+
+
+def main(argv):
+    if not argv:
+        fail("no subcommand")
+    command = argv[0]
+    rest = argv[1:]
+
+    if command == "snapshot":
+        snapshot()
+    elif command == "events":
+        since = 0
+        if rest and rest[0].lstrip("-").isdigit():
+            since = int(rest[0].lstrip("-"))
+        events(since)
+    elif command == "service":
+        service_action(rest[0] if rest else "status")
+    elif command == "rescan":
+        # No folder argument rescans every folder.
+        target = "/rest/db/scan"
+        if rest and rest[0]:
+            target += "?folder=" + urllib.parse.quote(rest[0])
+        post(target)
+    elif command == "folder-pause":
+        patch_folder(rest[0], {"paused": True})
+    elif command == "folder-resume":
+        patch_folder(rest[0], {"paused": False})
+    elif command == "folder-override":
+        post("/rest/db/override?folder=" + urllib.parse.quote(rest[0]))
+    elif command == "folder-revert":
+        post("/rest/db/revert?folder=" + urllib.parse.quote(rest[0]))
+    elif command == "device-pause":
+        patch_device(rest[0], {"paused": True})
+    elif command == "device-resume":
+        patch_device(rest[0], {"paused": False})
+    elif command == "accept-device":
+        accept_device(rest[0], rest[1] if len(rest) > 1 else "")
+    elif command == "reject-device":
+        dismiss_pending("device", rest[0], None)
+    elif command == "accept-folder":
+        accept_folder(rest[0], rest[1] if len(rest) > 1 else "", rest[2] if len(rest) > 2 else "")
+    elif command == "reject-folder":
+        dismiss_pending("folder", rest[0], rest[1] if len(rest) > 1 else None)
+    elif command == "clear-errors":
+        post("/rest/system/error/clear")
+    elif command == "syncthing-restart":
+        post("/rest/system/restart")
+    elif command == "syncthing-shutdown":
+        post("/rest/system/shutdown")
+    elif command == "gui-url":
+        base, _, _ = read_gui_config()
+        emit({"ok": bool(base), "url": base or "", "error": "" if base else "not configured"})
+    else:
+        fail("unknown subcommand: %s" % command)
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv[1:])
+    except IndexError:
+        fail("missing argument")
+    except Exception as exc:  # never let a traceback reach the panel's parser
+        fail("%s: %s" % (type(exc).__name__, exc))
