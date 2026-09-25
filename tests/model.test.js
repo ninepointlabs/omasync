@@ -273,6 +273,18 @@ test("fileUrlPath turns a QML resolved url into a usable path", () => {
   assert.equal(Model.fileUrlPath(""), "")
 })
 
+test("a connected device that shares nothing reads as Connected, not stuck at 0%", () => {
+  // Syncthing reports 0% completion for a device with no shared folders.
+  assert.equal(
+    Model.deviceStatusLabel(device({ sharesFolders: false, completion: 0 })),
+    "Connected"
+  )
+  assert.equal(
+    Model.deviceStatusLabel(device({ sharesFolders: true, completion: 0 })),
+    "Syncing 0%"
+  )
+})
+
 test("deviceStatusLabel and deviceDetail describe the connection", () => {
   assert.equal(Model.deviceStatusLabel(device()), "Up to date")
   assert.equal(Model.deviceStatusLabel(device({ completion: 42.7 })), "Syncing 42%")

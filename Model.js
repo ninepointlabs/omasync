@@ -144,6 +144,9 @@ function deviceStatusLabel(device) {
   if (!device) return "Unknown"
   if (device.paused) return "Paused"
   if (!device.connected) return "Disconnected"
+  // A device that shares no folder with us has nothing to be a percentage of;
+  // Syncthing reports 0% for it, which would read as a sync stuck at zero.
+  if (device.sharesFolders === false) return "Connected"
   if (Number(device.completion) < 100) return "Syncing " + Math.floor(Number(device.completion)) + "%"
   return "Up to date"
 }

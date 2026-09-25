@@ -211,8 +211,15 @@ def folder_rows(base, key, folders):
     return rows
 
 
-def device_rows(base, key, devices, connections, my_id):
+def device_rows(base, key, devices, connections, my_id, folders=None):
     conns = (connections or {}).get("connections", {}) or {}
+    # Which devices actually share a folder with us. Syncthing reports 0%
+    # completion for a device that shares nothing, which would otherwise read
+    # as "Syncing 0%" forever instead of simply "Connected".
+    sharing = set()
+    for folder in folders or []:
+        for entry in folder.get("devices", []) or []:
+            sharing.add(entry.get("deviceID", ""))
     rows = []
     for device in devices:
         did = device.get("deviceID", "")
@@ -236,6 +243,7 @@ def device_rows(base, key, devices, connections, my_id):
                 "completion": round(float(completion.get("completion", 0) or 0), 2),
                 "needBytes": completion.get("needBytes", 0) or 0,
                 "introducer": bool(device.get("introducer")),
+                "sharesFolders": did in sharing,
             }
         )
     rows.sort(key=lambda r: (not r["connected"], r["name"].lower()))
@@ -302,7 +310,9 @@ def snapshot():
         (d.get("name", "") for d in devices if d.get("deviceID") == my_id), ""
     )
     payload["folders"] = folder_rows(base, key, config.get("folders", []) or [])
-    payload["devices"] = device_rows(base, key, devices, connections, my_id)
+    payload["devices"] = device_rows(
+        base, key, devices, connections, my_id, config.get("folders", []) or []
+    )
 
     errors, _ = api(base, key, "/rest/system/error")
     payload["errors"] = ((errors or {}).get("errors") or [])[-10:]
