@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "ninepointlabs.omasync",
-  "name": "OmaSync",
+  "name": "OmaSyncthing",
   "version": "0.1.0",
   "author": "Ninepoint Labs",
   "license": "MIT",
@@ -15,7 +15,7 @@
     "barWidget": "Panel.qml"
   },
   "barWidget": {
-    "displayName": "OmaSync",
+    "displayName": "OmaSyncthing",
     "description": "Start and stop Syncthing, watch folders sync, pause folders and devices, and accept incoming share invites.",
     "category": "Network",
     "aliases": [

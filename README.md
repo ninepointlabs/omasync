@@ -1,18 +1,18 @@
-# OmaSync
+# OmaSyncthing
 
 A native [Omarchy](https://omarchy.org/) bar widget for
 [Syncthing](https://syncthing.net/). Folder and device status at a glance, live
 transfer rates, incoming share invites — and full control of the `syncthing`
 user service without ever leaving the bar, or seeing a password prompt.
 
-<img src="preview.png" alt="The OmaSync panel, showing a pending device invite, two folders and a connected remote device" width="440">
+<img src="preview.png" alt="The OmaSyncthing panel, showing a pending device invite, two folders and a connected remote device" width="440">
 
 ## Why
 
-The Syncthing Web GUI is a browser tab you have to remember to open. OmaSync
-puts the parts you actually check — is it running, is everything in sync, who
-is connected, is anything waiting on me — into the bar, and gives you the
-handful of controls worth having a shortcut for.
+The Syncthing Web GUI is a browser tab you have to remember to open.
+OmaSyncthing puts the parts you actually check — is it running, is everything
+in sync, who is connected, is anything waiting on me — into the bar, and gives
+you the handful of controls worth having a shortcut for.
 
 It also starts and stops the daemon, which the Web GUI cannot do.
 
@@ -62,14 +62,14 @@ It also starts and stops the daemon, which the Web GUI cannot do.
 
 ## In the bar
 
-<img src="preview-bar.png" alt="The OmaSync icon in the Omarchy bar with a badge for a pending invite" width="300">
+<img src="preview-bar.png" alt="The OmaSyncthing icon in the Omarchy bar with a badge for a pending invite" width="300">
 
 The Syncthing mark is drawn natively rather than loaded from an SVG, so it
 takes your theme's foreground colour exactly, stays crisp at bar size, spins
 while a sync is running, and picks up a badge when something is waiting for
 you. When the service is stopped it is struck through:
 
-<img src="preview-stopped.png" alt="The OmaSync panel with the Syncthing service stopped" width="440">
+<img src="preview-stopped.png" alt="The OmaSyncthing panel with the Syncthing service stopped" width="440">
 
 ## Requirements
 
@@ -103,7 +103,7 @@ omarchy plugin remove ninepointlabs.omasync
 
 That disables the widget in the bar and removes the plugin folder — deleted
 outright when it is a git clone, moved to a timestamped backup beside it
-otherwise. OmaSync keeps no state of its own beyond the widget's entry in
+otherwise. OmaSyncthing keeps no state of its own beyond the widget's entry in
 `~/.config/omarchy/shell.json`, and it never touches Syncthing's own
 configuration: the daemon, its config and your synced folders are left exactly
 as they were. To remove Syncthing too:

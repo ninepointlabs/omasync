@@ -263,7 +263,7 @@ Panel {
     fixedWidth: (bar && bar.vertical)
       ? -1
       : Math.round(barContent.implicitWidth + Style.spaceReal(horizontalMargin) * 2)
-    tooltipText: "OmaSync · " + root.syncthing.stateLabel
+    tooltipText: "OmaSyncthing · " + root.syncthing.stateLabel
       + (root.syncthing.pendingCount > 0
         ? " · " + root.syncthing.pendingCount + (root.syncthing.pendingCount === 1 ? " invite" : " invites")
         : "")
@@ -360,7 +360,7 @@ Panel {
             PanelHero {
               id: hero
               width: parent.width
-              title: root.syncthing.snapshot.myName || "OmaSync"
+              title: root.syncthing.snapshot.myName || "OmaSyncthing"
               meta: Model.heroMeta(root.syncthing.snapshot, root.syncthing.inRate, root.syncthing.outRate)
               detail: root.syncthing.snapshot.version || ""
               foreground: root.foreground

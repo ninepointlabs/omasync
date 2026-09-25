@@ -320,10 +320,10 @@ Item {
       _notified[event.key] = true
       Quickshell.execDetached([
         "omarchy-notification-send",
-        "--app-name", "OmaSync",
+        "--app-name", "OmaSyncthing",
         "-g", "󰓦",
         "-u", event.urgent ? "normal" : "low",
-        Model.notificationText(event.title || "OmaSync"),
+        Model.notificationText(event.title || "OmaSyncthing"),
         Model.notificationText(event.body || "")
       ])
     }
@@ -347,7 +347,7 @@ Item {
       if (exitCode === 0) root.applySnapshot(snapshotOut.text)
       else {
         root.ready = true
-        root.lastError = String(snapshotErr.text || "").trim() || "OmaSync bridge failed"
+        root.lastError = String(snapshotErr.text || "").trim() || "OmaSyncthing bridge failed"
       }
     }
   }
