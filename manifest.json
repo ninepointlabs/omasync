@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ninepointlabs.omasync",
   "name": "OmaSyncthing",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "Nine Point Labs",
   "license": "MIT",
   "description": "Syncthing folders, devices, transfer rates and pending invites in the Omarchy bar, with start/stop control of the syncthing user service.",
