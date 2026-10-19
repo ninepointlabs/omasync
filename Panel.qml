@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
-import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -20,13 +20,13 @@ Panel {
   property int cursor: 0
   property bool cursorActive: false
 
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
-  readonly property color urgent: bar ? bar.urgent : Color.urgent
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
+  readonly property color urgent: bar ? bar.urgent : Commons.Color.urgent
   // The bar exposes foreground and urgent but has no accent of its own; the
   // accent is a theme-level colour, read straight off the Color singleton.
-  readonly property color accent: Color.accent
+  readonly property color accent: Commons.Color.accent
   readonly property color dim: Qt.darker(foreground, 1.55)
-  readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
+  readonly property string fontFamily: bar ? bar.fontFamily : Commons.Style.font.family
 
   // The bar instantiates a widget per monitor, so a service living inside the
   // widget would poll, long-poll and notify once per screen. Declaring the
@@ -55,7 +55,7 @@ Panel {
     : (problem ? urgent : foreground)
   readonly property color barIconColor: !root.syncthing.serviceRunning
     ? Qt.darker(barForeground, 1.55)
-    : (problem ? (bar ? bar.urgent : Color.urgent) : barForeground)
+    : (problem ? (bar ? bar.urgent : Commons.Color.urgent) : barForeground)
 
   readonly property string barLabelMode: setting("barLabel", "none")
   readonly property string barLabelText: (bar && bar.vertical)
@@ -183,10 +183,10 @@ Panel {
     if (!item) return
     var top = item.mapToItem(column, 0, 0).y
     var bottom = top + item.height
-    if (top < panelFlick.contentY) panelFlick.contentY = Math.max(0, top - Style.space(8))
+    if (top < panelFlick.contentY) panelFlick.contentY = Math.max(0, top - Commons.Style.space(8))
     else if (bottom > panelFlick.contentY + panelFlick.height)
       panelFlick.contentY = Math.min(Math.max(0, column.implicitHeight - panelFlick.height),
-                                     bottom - panelFlick.height + Style.space(8))
+                                     bottom - panelFlick.height + Commons.Style.space(8))
   }
 
   // The cursor's visual item, looked up by the (section, index) it carries.
@@ -313,7 +313,7 @@ Panel {
     // far as the label needs so the bar does not jitter as rates change.
     fixedWidth: (bar && bar.vertical)
       ? -1
-      : Math.round(barContent.implicitWidth + Style.spaceReal(horizontalMargin) * 2)
+      : Math.round(barContent.implicitWidth + Commons.Style.spaceReal(horizontalMargin) * 2)
     tooltipText: "OmaSyncthing · " + root.syncthing.stateLabel
       + (root.syncthing.pendingCount > 0
         ? " · " + root.syncthing.pendingCount + (root.syncthing.pendingCount === 1 ? " invite" : " invites")
@@ -328,16 +328,16 @@ Panel {
     Row {
       id: barContent
       anchors.centerIn: parent
-      spacing: Style.space(5)
+      spacing: Commons.Style.space(5)
 
       SyncthingIcon {
         anchors.verticalCenter: parent.verticalCenter
-        iconSize: Style.bar.iconCanvas * 0.72
+        iconSize: Commons.Style.bar.iconCanvas * 0.72
         color: root.barIconColor
         crossed: !root.syncthing.serviceRunning && root.syncthing.installed
         spinning: root.syncing
         badge: root.syncthing.pendingCount > 0
-        badgeColor: root.bar ? root.bar.urgent : Color.urgent
+        badgeColor: root.bar ? root.bar.urgent : Commons.Color.urgent
       }
 
       Text {
@@ -347,7 +347,7 @@ Panel {
         text: root.barLabelText
         color: root.barIconColor
         font.family: root.fontFamily
-        font.pixelSize: Style.bar.iconFont
+        font.pixelSize: Commons.Style.bar.iconFont
         renderType: Text.NativeRendering
       }
     }
@@ -362,8 +362,8 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(400))
-    contentHeight: panel.fittedContentHeight(panelFlick.contentHeight, Style.space(620))
+    contentWidth: panel.fittedContentWidth(Commons.Style.space(400))
+    contentHeight: panel.fittedContentHeight(panelFlick.contentHeight, Commons.Style.space(620))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -394,7 +394,7 @@ Panel {
           id: column
           visible: !root.showAbout
           width: panelFlick.width
-          spacing: Style.space(12)
+          spacing: Commons.Style.space(12)
 
           // ------------------------------------------------------- hero
 
@@ -424,7 +424,7 @@ Panel {
 
               iconComponent: Component {
                 SyncthingIcon {
-                  iconSize: Style.font.display
+                  iconSize: Commons.Style.font.display
                   color: root.iconColor
                   crossed: !root.syncthing.serviceRunning && root.syncthing.installed
                   spinning: root.syncing
@@ -433,7 +433,7 @@ Panel {
 
               trailingControl: Component {
                 Row {
-                  spacing: Style.space(10)
+                  spacing: Commons.Style.space(10)
 
                   PanelActionButton {
                     objectName: "aboutButton"
@@ -477,7 +477,7 @@ Panel {
               : (root.syncthing.lastError !== "" ? root.syncthing.lastError : root.syncthing.stateLabel)
             color: root.syncthing.lastError !== "" && root.syncthing.actionStatus === "" ? root.urgent : root.dim
             font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
+            font.pixelSize: Commons.Style.font.bodySmall
             wrapMode: Text.WordWrap
           }
 
@@ -526,7 +526,7 @@ Panel {
           Column {
             visible: root.showPending
             width: parent.width
-            spacing: Style.space(8)
+            spacing: Commons.Style.space(8)
 
             PanelSectionHeader {
               text: "WAITING FOR YOU"
@@ -572,7 +572,7 @@ Panel {
           Column {
             visible: root.showFolders
             width: parent.width
-            spacing: Style.space(6)
+            spacing: Commons.Style.space(6)
 
             PanelSectionHeader {
               text: "FOLDERS"
@@ -599,7 +599,7 @@ Panel {
           Column {
             visible: root.showDevices
             width: parent.width
-            spacing: Style.space(6)
+            spacing: Commons.Style.space(6)
 
             PanelSectionHeader {
               text: "REMOTE DEVICES"
@@ -626,7 +626,7 @@ Panel {
           Column {
             visible: root.showErrors
             width: parent.width
-            spacing: Style.space(6)
+            spacing: Commons.Style.space(6)
 
             PanelSectionHeader {
               text: "ERRORS"
@@ -644,7 +644,7 @@ Panel {
           Column {
             visible: root.footerActions.length > 0
             width: parent.width
-            spacing: Style.space(4)
+            spacing: Commons.Style.space(4)
 
             Repeater {
               model: root.footerActions
@@ -666,7 +666,7 @@ Panel {
           objectName: "aboutColumn"
           visible: root.showAbout
           width: panelFlick.width
-          spacing: Style.space(12)
+          spacing: Commons.Style.space(12)
 
           Item {
             width: parent.width
@@ -676,25 +676,25 @@ Panel {
               id: aboutIcon
               anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
-              iconSize: Style.font.display
+              iconSize: Commons.Style.font.display
               color: root.accent
             }
 
             Column {
               id: aboutTitle
               anchors.left: aboutIcon.right
-              anchors.leftMargin: Style.space(14)
+              anchors.leftMargin: Commons.Style.space(14)
               anchors.right: aboutBack.left
-              anchors.rightMargin: Style.space(8)
+              anchors.rightMargin: Commons.Style.space(8)
               anchors.verticalCenter: parent.verticalCenter
-              spacing: Style.space(2)
+              spacing: Commons.Style.space(2)
 
               Text {
                 textFormat: Text.PlainText
                 text: Model.ABOUT.name
                 color: root.foreground
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.title
+                font.pixelSize: Commons.Style.font.title
                 font.bold: true
               }
               AboutText { width: parent.width; text: Model.ABOUT.tagline; color: root.dim }
@@ -702,7 +702,7 @@ Panel {
                 objectName: "aboutVersion"
                 text: "Version " + (root.version || "unknown")
                 color: root.dim
-                font.pixelSize: Style.font.caption
+                font.pixelSize: Commons.Style.font.caption
               }
             }
 
@@ -725,9 +725,9 @@ Panel {
             id: aboutFacts
             width: parent.width
             columns: 2
-            columnSpacing: Style.space(10)
-            rowSpacing: Style.space(10)
-            readonly property real labelWidth: Style.space(78)
+            columnSpacing: Commons.Style.space(10)
+            rowSpacing: Commons.Style.space(10)
+            readonly property real labelWidth: Commons.Style.space(78)
             readonly property real valueWidth: width - labelWidth - columnSpacing
 
             AboutLabel { width: aboutFacts.labelWidth; text: "MADE BY" }
@@ -739,7 +739,7 @@ Panel {
             AboutLabel { width: aboutFacts.labelWidth; text: "LICENSE" }
             Column {
               width: aboutFacts.valueWidth
-              spacing: Style.space(4)
+              spacing: Commons.Style.space(4)
               AboutText { width: parent.width; text: Model.ABOUT.license + ", " + Model.ABOUT.copyright }
               Button {
                 objectName: "aboutLicenseLink"
@@ -747,7 +747,7 @@ Panel {
                 foreground: root.foreground
                 accent: root.accent
                 fontFamily: root.fontFamily
-                fontSize: Style.font.caption
+                fontSize: Commons.Style.font.caption
                 onClicked: root.showLicense = !root.showLicense
               }
             }
@@ -755,11 +755,11 @@ Panel {
             AboutLabel { width: aboutFacts.labelWidth; text: "SUPPORT" }
             Column {
               width: aboutFacts.valueWidth
-              spacing: Style.space(4)
+              spacing: Commons.Style.space(4)
               AboutText { width: parent.width; text: Model.ABOUT.supportEmail }
               Flow {
                 width: parent.width
-                spacing: Style.space(6)
+                spacing: Commons.Style.space(6)
                 Button {
                   text: "Email"
                   tooltipText: "Opens your mail app with the version details filled in"
@@ -767,7 +767,7 @@ Panel {
                   foreground: root.foreground
                   accent: root.accent
                   fontFamily: root.fontFamily
-                  fontSize: Style.font.caption
+                  fontSize: Commons.Style.font.caption
                   onClicked: Qt.openUrlExternally(Model.supportMailto(root.version, root.aboutDetails))
                 }
                 Button {
@@ -777,7 +777,7 @@ Panel {
                   foreground: root.foreground
                   accent: root.accent
                   fontFamily: root.fontFamily
-                  fontSize: Style.font.caption
+                  fontSize: Commons.Style.font.caption
                   onClicked: root.copyText(Model.ABOUT.supportEmail, "email")
                 }
                 Button {
@@ -786,7 +786,7 @@ Panel {
                   foreground: root.foreground
                   accent: root.accent
                   fontFamily: root.fontFamily
-                  fontSize: Style.font.caption
+                  fontSize: Commons.Style.font.caption
                   onClicked: root.copyText(root.aboutDetails, "details")
                 }
               }
@@ -797,7 +797,7 @@ Panel {
               objectName: "aboutPrivacy"
               width: aboutFacts.valueWidth
               text: Model.PRIVACY
-              font.pixelSize: Style.font.caption
+              font.pixelSize: Commons.Style.font.caption
             }
 
             AboutLabel { width: aboutFacts.labelWidth; text: "BUILT WITH" }
@@ -806,7 +806,7 @@ Panel {
               width: aboutFacts.valueWidth
               text: Model.builtWith(root.quickshellVersion, root.qtVersion, root.syncthingVersion) || "Quickshell and Qt"
               color: root.dim
-              font.pixelSize: Style.font.caption
+              font.pixelSize: Commons.Style.font.caption
             }
           }
 
@@ -817,7 +817,7 @@ Panel {
             text: licenseFile.loaded ? Model.reflowLicense(licenseFile.text())
               : Model.ABOUT.license + ", " + Model.ABOUT.copyright
             color: root.dim
-            font.pixelSize: Style.font.caption
+            font.pixelSize: Commons.Style.font.caption
           }
         }
       }
@@ -830,7 +830,7 @@ Panel {
     textFormat: Text.PlainText
     color: root.dim
     font.family: root.fontFamily
-    font.pixelSize: Style.font.caption
+    font.pixelSize: Commons.Style.font.caption
     font.bold: true
     font.letterSpacing: 1.2
   }
@@ -839,7 +839,7 @@ Panel {
     textFormat: Text.PlainText
     color: root.foreground
     font.family: root.fontFamily
-    font.pixelSize: Style.font.bodySmall
+    font.pixelSize: Commons.Style.font.bodySmall
     wrapMode: Text.WordWrap
   }
 
@@ -847,7 +847,7 @@ Panel {
 
   component NoticeRow: Item {
     property string message: ""
-    implicitHeight: visible ? noticeText.implicitHeight + Style.space(6) : 0
+    implicitHeight: visible ? noticeText.implicitHeight + Commons.Style.space(6) : 0
 
     Text {
       id: noticeText
@@ -858,7 +858,7 @@ Panel {
       text: parent.message
       color: root.dim
       font.family: root.fontFamily
-      font.pixelSize: Style.font.bodySmall
+      font.pixelSize: Commons.Style.font.bodySmall
       wrapMode: Text.WordWrap
     }
   }
@@ -875,7 +875,7 @@ Panel {
     hasCursor: root.isCursor("folder", rowIndex)
     foreground: root.foreground
     accent: root.accent
-    implicitHeight: folderLayout.implicitHeight + Style.spacing.controlPaddingY * 2
+    implicitHeight: folderLayout.implicitHeight + Commons.Style.spacing.controlPaddingY * 2
 
     Component.onCompleted: root.registerRow("folder", rowIndex, folderRow)
 
@@ -892,13 +892,13 @@ Panel {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      anchors.leftMargin: Style.spacing.rowPaddingX
-      anchors.rightMargin: Style.spacing.rowPaddingX
-      spacing: Style.space(4)
+      anchors.leftMargin: Commons.Style.spacing.rowPaddingX
+      anchors.rightMargin: Commons.Style.spacing.rowPaddingX
+      spacing: Commons.Style.space(4)
 
       RowLayout {
         Layout.fillWidth: true
-        spacing: Style.space(8)
+        spacing: Commons.Style.space(8)
 
         Text {
           textFormat: Text.PlainText
@@ -906,7 +906,7 @@ Panel {
           text: folderRow.folder ? folderRow.folder.label : ""
           color: folderRow.folder && folderRow.folder.paused ? root.dim : root.foreground
           font.family: root.fontFamily
-          font.pixelSize: Style.font.body
+          font.pixelSize: Commons.Style.font.body
           font.bold: true
           elide: Text.ElideRight
         }
@@ -916,7 +916,7 @@ Panel {
           text: Model.folderStateLabel(folderRow.folder)
           color: folderRow.trouble ? root.urgent : root.dim
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: Commons.Style.font.caption
           font.bold: true
         }
 
@@ -958,14 +958,14 @@ Panel {
           + " · " + Model.folderTypeLabel(folderRow.folder ? folderRow.folder.type : "")
         color: root.dim
         font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: Commons.Style.font.caption
         elide: Text.ElideRight
       }
 
       // Progress track, shown only while there is progress worth watching.
       Rectangle {
         Layout.fillWidth: true
-        Layout.preferredHeight: Math.max(2, Style.space(3))
+        Layout.preferredHeight: Math.max(2, Commons.Style.space(3))
         visible: folderRow.busy || folderRow.completion < 100
         radius: height / 2
         color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
@@ -992,7 +992,7 @@ Panel {
     hasCursor: root.isCursor("device", rowIndex)
     foreground: root.foreground
     accent: root.accent
-    implicitHeight: deviceLayout.implicitHeight + Style.spacing.controlPaddingY * 2
+    implicitHeight: deviceLayout.implicitHeight + Commons.Style.spacing.controlPaddingY * 2
 
     Component.onCompleted: root.registerRow("device", rowIndex, deviceRow)
 
@@ -1005,18 +1005,18 @@ Panel {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      anchors.leftMargin: Style.spacing.rowPaddingX
-      anchors.rightMargin: Style.spacing.rowPaddingX
-      spacing: Style.space(2)
+      anchors.leftMargin: Commons.Style.spacing.rowPaddingX
+      anchors.rightMargin: Commons.Style.spacing.rowPaddingX
+      spacing: Commons.Style.space(2)
 
       RowLayout {
         Layout.fillWidth: true
-        spacing: Style.space(8)
+        spacing: Commons.Style.space(8)
 
         // Connection pip: the fastest read of whether this device is there.
         Rectangle {
           Layout.alignment: Qt.AlignVCenter
-          width: Style.space(7)
+          width: Commons.Style.space(7)
           height: width
           radius: width / 2
           color: deviceRow.device && deviceRow.device.paused
@@ -1030,7 +1030,7 @@ Panel {
           text: deviceRow.device ? deviceRow.device.name : ""
           color: deviceRow.device && (deviceRow.device.paused || !deviceRow.device.connected) ? root.dim : root.foreground
           font.family: root.fontFamily
-          font.pixelSize: Style.font.body
+          font.pixelSize: Commons.Style.font.body
           elide: Text.ElideRight
         }
 
@@ -1039,7 +1039,7 @@ Panel {
           text: Model.deviceStatusLabel(deviceRow.device)
           color: root.dim
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: Commons.Style.font.caption
           font.bold: true
         }
 
@@ -1069,7 +1069,7 @@ Panel {
         text: Model.deviceDetail(deviceRow.device)
         color: root.dim
         font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: Commons.Style.font.caption
         elide: Text.ElideRight
       }
     }
@@ -1089,7 +1089,7 @@ Panel {
     foreground: root.foreground
     accent: root.accent
     bordered: true
-    implicitHeight: pendingLayout.implicitHeight + Style.spacing.controlPaddingY * 2
+    implicitHeight: pendingLayout.implicitHeight + Commons.Style.spacing.controlPaddingY * 2
 
     Component.onCompleted: root.registerRow(rowSection, rowIndex, pendingRow)
 
@@ -1102,13 +1102,13 @@ Panel {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      anchors.leftMargin: Style.spacing.rowPaddingX
-      anchors.rightMargin: Style.spacing.rowPaddingX
-      spacing: Style.space(8)
+      anchors.leftMargin: Commons.Style.spacing.rowPaddingX
+      anchors.rightMargin: Commons.Style.spacing.rowPaddingX
+      spacing: Commons.Style.space(8)
 
       ColumnLayout {
         Layout.fillWidth: true
-        spacing: Style.space(2)
+        spacing: Commons.Style.space(2)
 
         Text {
           textFormat: Text.PlainText
@@ -1116,7 +1116,7 @@ Panel {
           text: pendingRow.title
           color: root.foreground
           font.family: root.fontFamily
-          font.pixelSize: Style.font.body
+          font.pixelSize: Commons.Style.font.body
           font.bold: true
           elide: Text.ElideRight
         }
@@ -1127,7 +1127,7 @@ Panel {
           text: pendingRow.subtitle
           color: root.dim
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: Commons.Style.font.caption
           elide: Text.ElideRight
         }
       }
@@ -1160,7 +1160,7 @@ Panel {
     hasCursor: root.isCursor("errors", 0)
     foreground: root.foreground
     accent: root.accent
-    implicitHeight: errorsLayout.implicitHeight + Style.spacing.controlPaddingY * 2
+    implicitHeight: errorsLayout.implicitHeight + Commons.Style.spacing.controlPaddingY * 2
 
     Component.onCompleted: root.registerRow("errors", 0, errorsRow)
 
@@ -1173,13 +1173,13 @@ Panel {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      anchors.leftMargin: Style.spacing.rowPaddingX
-      anchors.rightMargin: Style.spacing.rowPaddingX
-      spacing: Style.space(8)
+      anchors.leftMargin: Commons.Style.spacing.rowPaddingX
+      anchors.rightMargin: Commons.Style.spacing.rowPaddingX
+      spacing: Commons.Style.space(8)
 
       ColumnLayout {
         Layout.fillWidth: true
-        spacing: Style.space(3)
+        spacing: Commons.Style.space(3)
 
         Repeater {
           model: root.syncthing.errors
@@ -1190,7 +1190,7 @@ Panel {
             text: String(modelData.message || modelData)
             color: root.urgent
             font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: Commons.Style.font.caption
             wrapMode: Text.WordWrap
             maximumLineCount: 3
             elide: Text.ElideRight
@@ -1217,7 +1217,7 @@ Panel {
     hasCursor: root.isCursor("action", rowIndex)
     foreground: root.foreground
     accent: root.accent
-    implicitHeight: Style.spacing.popupRowHeight
+    implicitHeight: Commons.Style.spacing.popupRowHeight
 
     Component.onCompleted: root.registerRow("action", rowIndex, actionRow)
 
@@ -1231,16 +1231,16 @@ Panel {
 
     RowLayout {
       anchors.fill: parent
-      anchors.leftMargin: Style.spacing.rowPaddingX
-      anchors.rightMargin: Style.spacing.rowPaddingX
-      spacing: Style.space(10)
+      anchors.leftMargin: Commons.Style.spacing.rowPaddingX
+      anchors.rightMargin: Commons.Style.spacing.rowPaddingX
+      spacing: Commons.Style.space(10)
 
       Text {
         textFormat: Text.PlainText
         text: actionRow.action ? actionRow.action.icon : ""
         color: root.dim
         font.family: root.fontFamily
-        font.pixelSize: Style.font.iconSmall
+        font.pixelSize: Commons.Style.font.iconSmall
       }
 
       Text {
@@ -1249,7 +1249,7 @@ Panel {
         text: actionRow.action ? actionRow.action.label : ""
         color: root.foreground
         font.family: root.fontFamily
-        font.pixelSize: Style.font.body
+        font.pixelSize: Commons.Style.font.body
         elide: Text.ElideRight
       }
     }

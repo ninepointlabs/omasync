@@ -1,5 +1,5 @@
 import QtQuick
-import qs.Commons
+import qs.Commons as Commons
 
 // The Syncthing mark drawn natively rather than loaded from SVG: three nodes
 // on a broken ring. Drawing it means it takes the theme foreground exactly,
@@ -8,13 +8,13 @@ import qs.Commons
 Item {
   id: root
 
-  property real iconSize: Style.font.icon
-  property color color: Color.foreground
+  property real iconSize: Commons.Style.font.icon
+  property color color: Commons.Color.foreground
   // Drawn over the mark when the service is stopped.
   property bool crossed: false
   // A small filled dot in the top-right corner, for pending invites or errors.
   property bool badge: false
-  property color badgeColor: Color.urgent
+  property color badgeColor: Commons.Color.urgent
   // Rotates the ring continuously; used while folders are syncing.
   property bool spinning: false
 

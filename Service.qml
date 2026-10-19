@@ -1,7 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import qs.Commons
+import qs.Commons as Commons
 import "Model.js" as Model
 
 // Owns every conversation with Syncthing: the periodic snapshot, the event
